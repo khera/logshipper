@@ -7,6 +7,8 @@
 use strict;
 use warnings;
 
+our $VERSION = '1.0.0';
+
 use 5.10.0;
 
 use Sys::Hostname;
