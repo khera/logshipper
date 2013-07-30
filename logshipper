@@ -1,0 +1,140 @@
+#!/usr/bin/perl
+#
+# read a log file and inject messages into redis broker.
+# messages are encoded into JSON, in the same way logstash does
+# derived from https://github.com/shtouff/logtail
+
+use strict;
+use warnings;
+
+use 5.10.0;
+
+use Sys::Hostname;
+use Getopt::Long 2.38;
+use JSON;
+use Redis 1.951;
+use DateTime;
+
+# Process command line options:
+# --debug	turn on debugging (optional)
+# --host	redis server host
+# --port	redis server port (optional, default is 6379)
+# --db		redis database number, (optional, default 0)
+# --key		redis key into which events are RPUSH'd
+# --type	set logstash "type" field for events (optional, no default)
+# --tags	CSV list of tags (optional)
+# --field	add a field as foo=bar (optional, may be repeated)
+# --source_host	override source host name (optional)
+our ($debug,$redis_host,$redis_port,$redis_db,$redis_key,$data_type,$tags,%fields,$source_host);
+# defaults
+$redis_port = 6379;
+$redis_db = 0;
+$source_host = hostname;
+
+# and fetch options from user
+GetOptions(
+  'debug' => \$debug,
+  'host=s' => \$redis_host,
+  'port=i' => \$redis_port,
+  'db=i' => \$redis_db,
+  'key=s' => \$redis_key,
+  'type=s' => \$data_type,
+  'tags=s' => \$tags,
+  'field=s%' => sub { push(@{$fields{$_[1]}}, $_[2]) },
+  'source_host=s' => \$source_host,
+) or die;
+
+if ($debug) {
+  warn "Debugging mode is on.\n";
+}
+
+unless ($redis_host && $redis_key) {
+  die "host and key must both be specified\n";
+}
+
+# convert input into formats usable by the json mapper.
+our @tags = split /,/,$tags;
+
+# init some values we need frequently.
+our $timezone = DateTime::TimeZone->new( name => 'UTC' );
+
+# on sig INFO, emit the current line number (when not in debug mode)
+our $printstatus = 0;
+$SIG{'INFO'} = sub { $printstatus = 1; }; # BSD-only thing...
+
+# slurp whole file and emit events in batches of 50
+my @events;
+while (<>) {
+  chomp;
+  push @events,logstash_event($_);
+  if (scalar(@events) >= 50) {
+    warn "Done with $. lines\n" if $debug;
+    if ($printstatus) {
+      print "Done with $. lines\n";
+      $printstatus = 0;
+    }
+    emit_events(\@events);
+    @events = ();
+  }
+}
+# and send along any events since last batch
+if scalar(@events) {
+  print "Processed $. lines"
+  emit_events(\@events);
+}
+
+exit(0);
+
+#### subroutines
+
+# make a logstash event from a message string.
+# we assume logstash filters on the receiving end will sort it all out.
+sub logstash_event {
+  my $msg = shift;
+
+  my $time = DateTime->now(time_zone => $timezone);
+  my $event = {
+    '@timestamp' => $time->iso8601(),
+    '@source' => "file://" . $source_host . '/',
+    '@source_host' => $source_host,
+#    '@source_path' => '/',
+    '@type' => $data_type,
+    '@fields' => \%fields,
+    '@tags' => \@tags,
+    '@message' => $msg,
+  };
+
+  my $j = encode_json($event);
+  #warn "$j\n";
+  return $j;
+}
+
+sub emit_events {
+  my $events_ref = shift;
+
+  warn "sending ".scalar(@$events_ref)." events\n" if $debug;
+
+  my $redis = redis_connect();
+
+  $redis->rpush($redis_key, @$events_ref); # will DIE on fail to write.
+}
+
+
+# (re)connect to redis server, return handle to redis object.
+sub redis_connect {
+  our $redis_handle;
+
+  unless ($redis_handle && $redis_handle->ping()) {
+    warn "Connecting to redis @ $redis_host:$redis_port db=$redis_db key=$redis_key\n" if $debug;
+
+    $redis_handle = Redis->new(
+      server => $redis_host . ':' . $redis_port,
+      reconnect => 60,
+      every => 100,
+      encoding => undef
+    );
+    $redis_handle->select($redis_db);
+  }
+
+  return $redis_handle;
+}
