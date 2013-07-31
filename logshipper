@@ -32,6 +32,7 @@ our ($debug,$redis_host,$redis_port,$redis_db,$redis_key,$data_type,$tags,%field
 $redis_port = 6379;
 $redis_db = 0;
 $source_host = hostname;
+$tags = '';
 
 # and fetch options from user
 GetOptions(
