@@ -80,9 +80,11 @@ while (<>) {
     @events = ();
   }
 }
+
+print "Processed $. lines\n";
+
 # and send along any events since last batch
 if (scalar(@events)) {
-  print "Processed $. lines";
   emit_events(\@events);
 }
 
