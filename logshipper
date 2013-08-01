@@ -27,11 +27,13 @@ use DateTime;
 # --tags	CSV list of tags (optional)
 # --field	add a field as foo=bar (optional, may be repeated)
 # --source_host	override source host name (optional)
-our ($debug,$redis_host,$redis_port,$redis_db,$redis_key,$data_type,$tags,%fields,$source_host);
+# --pressure	max number of events queued in Redis (optional, default 1000000; 0=disable)
+our ($debug,$redis_host,$redis_port,$redis_db,$redis_key,$data_type,$tags,%fields,$source_host,$pressure);
 # defaults
 $redis_port = 6379;
 $redis_db = 0;
 $source_host = hostname;
+$pressure = 1_000_000;          # max events we allow in queue
 $tags = '';
 
 # and fetch options from user
@@ -120,6 +122,20 @@ sub emit_events {
   warn "sending ".scalar(@$events_ref)." events\n" if $debug;
 
   my $redis = redis_connect();
+
+  if ($pressure) {
+    # make sure no more than $pressure events are in the redis queue
+    # by sleeping a while until the value below.
+    warn "pressure = $pressure\n" if $debug;
+    while (my $backlog = $redis->llen($redis_key)) {
+      if ($backlog > $pressure) {
+        print "sleeping to relieve pressure ($backlog > $pressure)\n";
+        sleep 5;
+      } else {
+        last;
+      }
+    }
+  }
 
   $redis->rpush($redis_key, @$events_ref); # will DIE on fail to write.
 }
