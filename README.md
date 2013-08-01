@@ -21,7 +21,7 @@ Command Line Options
 - *tags*	CSV list of tags (optional)
 - *field*	add a field as foo=bar (optional, may be repeated)
 - *source_host*	override source host name (optional)
-
+- *pressure*    max number of events queued in Redis (optional, default 1000000; 0=disable)
 
 Example
 -------
