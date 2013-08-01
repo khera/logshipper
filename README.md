@@ -5,9 +5,8 @@ Ship log files into Redis for subsequent consumption by LogStash.
 
 Logshipper reads every line of a file (or stdin), packages it up as
 a LogStash JSON event object, and pushes it onto the named Redis
-list. From there, a logstash consumer process can pull, process, and
+list. From there, a logstash consumer process can pull, filter, and
 store into the configured backing store.
-
 
 Command Line Options
 --------------------
@@ -21,7 +20,8 @@ Command Line Options
 - *tags*	CSV list of tags (optional)
 - *field*	add a field as foo=bar (optional, may be repeated)
 - *source_host*	override source host name (optional)
-- *pressure*    max number of events queued in Redis (optional, default 1000000; 0=disable)
+- *pressure*    max number of backlog events queued in Redis. Will
+  sleep until the backlog is below this value. (optional, default 1000000; 0=disable)
 
 Example
 -------
